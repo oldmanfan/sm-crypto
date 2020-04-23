@@ -2,7 +2,14 @@
 
 国密算法sm2、sm3和sm4的js版。
 
-> PS: 小程序移植版：[https://github.com/wechat-miniprogram/sm-crypto](https://github.com/wechat-miniprogram/sm-crypto)
+* 支持压缩公钥, 默认压缩公钥.  
+* 支持生成助记词.  
+* 支持从助记词生成密钥对.  
+
+**PS: 从压缩公钥导出非压缩公钥有失败的可能, 因为导出算法只有部分实现.**
+
+
+> PS2: 小程序移植版：[https://github.com/wechat-miniprogram/sm-crypto](https://github.com/wechat-miniprogram/sm-crypto)
 
 ## 安装
 
@@ -12,6 +19,32 @@ npm install --save sm-crypto
 
 ## sm2
 
+### 生成非压缩的公钥
+```js
+const sm2 = require('sm-crypto').sm2;
+
+let keypair = sm2.generateKeyPairHex(false);
+
+publicKey = keypair.publicKey; // 非压缩公钥
+privateKey = keypair.privateKey; // 私钥
+```
+
+### 生成带助记词的密钥对
+```js
+const mnemonic = require('sm-crypto').mnemonic;
+let memos = mnemonic.generateKeyPairAndMnemonic();
+
+let mnemonics = memos.mnemonic;
+let publicKey = memos.publicKey;  // 压缩公钥
+let privateKey = memos.privateKey; 
+
+let keypair = mnemonic.generateKeyPairByMnemonic(mnemonics, false);
+let publicKey1 = keypair.publicKey; // 非压缩公钥
+let privateKey1 = keypair.privateKey;
+
+assert (privateKey == privateKey1, 'fatal error');
+```
+
 ### 获取密钥对
 
 ```js
@@ -19,7 +52,7 @@ const sm2 = require('sm-crypto').sm2;
 
 let keypair = sm2.generateKeyPairHex();
 
-publicKey = keypair.publicKey; // 公钥
+publicKey = keypair.publicKey; // 压缩公钥
 privateKey = keypair.privateKey; // 私钥
 ```
 

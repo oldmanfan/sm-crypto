@@ -1,4 +1,4 @@
-const { BigInteger } = require('jsbn');
+const { BigInteger, SecureRandom } = require('jsbn');
 
 /**
  * thanks for Tom Wu : http://www-cs-students.stanford.edu/~tjw/jsbn/
@@ -9,7 +9,18 @@ const { BigInteger } = require('jsbn');
  */
 
 const THREE = new BigInteger('3');
+const ONE = new BigInteger('1');
 
+function calculateResidue(p) {
+    let bitLength = p.bitLength();
+    if (bitLength > 128) {
+        let firstWord = p.shiftRight(bitLength - 64);
+        if (firstWord.equals(new BigInteger("-1"))) {
+            return ONE.shiftLeft(bitLength).subtract(p);
+        }
+    }
+    return null;
+}
 /**
  * 椭圆曲线域元素
  */
@@ -18,6 +29,7 @@ class ECFieldElementFp {
         this.x = x;
         this.q = q;
         // TODO if (x.compareTo(q) >= 0) error
+        this.r = calculateResidue(this.q);
     }
 
     /**
@@ -75,6 +87,94 @@ class ECFieldElementFp {
      */
     square() {
         return new ECFieldElementFp(this.q, this.x.square().mod(this.q));
+    }
+    /**
+     * 开平方
+     */
+    sqrt() {
+        if (!this.q.testBit(0)) {
+            throw new Error('not done yet');
+        }
+        // p mod 4 == 3
+        if (this.q.testBit(1)) {
+            let z = new ECFieldElementFp(this.q, this.x.modPow(this.q.shiftRight(2).add(ONE), this.q));
+            return z.square().equals(this) ? z : null;
+        }
+
+        let qMinusOne = this.q.subtract(ONE);
+        let legendreExponent = qMinusOne.shiftRight(1);
+        if (!(this.x.modPowInt(legendreExponent, this.q).equals(ONE))) {
+            return null;
+        }
+
+        let u = qMinusOne.shiftRight(2);
+        let k = u.shiftLeft(1).add(ONE);
+
+        let Q = this.x;
+        let fourQ = this._modDouble(this._modDouble(Q));
+
+        let U, V;
+        let rand = new SecureRandom();
+        do {
+            let P;
+            do {
+                P = new BigInteger(this.q.bitLength(), rand);
+            } while (P.compareTo(this.q) >= 0
+                || !(P.multiply(P).subtract(fourQ).modPow(legendreExponent, this.q).equals(qMinusOne)));
+            let result = this._lucasSequence(P, Q, k);
+            U = result[0];
+            V = result[1];
+
+            if (this._modMult(V, V).equals(fourQ)) {
+                if (V.testBit(0)) {
+                    V = V.add(this.q);
+                }
+
+                V = V.shiftRight(1);
+
+                return new ECFieldElementFp(this.q, V);
+            }
+        } while (U.equals(ONE) || U.equals(qMinusOne));
+
+        return null; // hope not here.
+    }
+
+    _modDouble(x) {
+        let _2x = x.shiftLeft(1);
+        if (_2x.compareTo(this.q) >= 0) {
+            _2x = _2x.subtract(this.q);
+        }
+        return _2x;
+    }
+
+    _modMult(x, y) {
+        return this._modReduce(x.multiply(y));
+    }
+
+    _modReduce(x1) {
+        let x = x1;
+        if (this.r) {
+            let qLen = this.q.bitLength();
+            while (x.bitLength() > (qLen + 1)) {
+                let u = x.shiftRight(qLen);
+                let v = x.subtract(u.shiftLeft(qLen));
+                if (!this.r.equals(ONE)) {
+                    u = u.multiply(this.r);
+                }
+                x = u.add(v);
+            }
+            while (x.compareTo(this.q) >= 0) {
+                x = x.subtract(this.q);
+            }
+        } else {
+            x = x.mod(this.q);
+        }
+        return x;
+    }
+
+    _lucasSequence(P, Q, k) {
+        // js暂时实现不了, 随缘吧
+        return [ONE, ONE]
     }
 }
 
@@ -137,7 +237,7 @@ class ECPointFp {
      * 相加
      *
      * 标准射影坐标系：
-     * 
+     *
      * λ1 = x1 * z2
      * λ2 = x2 * z1
      * λ3 = λ1 − λ2
@@ -164,7 +264,7 @@ class ECPointFp {
         let y2 = b.y.toBigInteger();
         let z2 = b.z;
         let q = this.curve.q;
-        
+
         let w1 = x1.multiply(z2).mod(q);
         let w2 = x2.multiply(z1).mod(q);
         let w3 = w1.subtract(w2);
@@ -196,7 +296,7 @@ class ECPointFp {
      * 自加
      *
      * 标准射影坐标系：
-     * 
+     *
      * λ1 = 3 * x1^2 + a * z1^2
      * λ2 = 2 * y1 * z1
      * λ3 = y1^2
@@ -285,25 +385,49 @@ class ECCurveFp {
     }
 
     /**
+     *
+     * @param {*} s
+     */
+    getYFromX(yTilde, xs) {
+        let xbi = new BigInteger(xs, 16);
+        let x = this.fromBigInteger(xbi);
+        let alpha = x.square().add(this.a).multiply(x).add(this.b);
+        let beta = alpha.sqrt();
+
+        if (!beta) { throw new Error('invalid compressed X'); }
+
+        if (beta.toBigInteger().testBit(0) != (yTilde === 1)) {
+            beta = beta.negate();
+        }
+
+        return beta;
+    }
+    /**
      * 解析 16 进制串为椭圆曲线点
      */
     decodePointHex(s) {
-        switch (parseInt(s.substr(0, 2), 16)) {
+        let prefix = parseInt(s.substr(0, 2), 16);
+        switch (prefix) {
             // 第一个字节
             case 0:
                 return this.infinity;
-            case 2:
-            case 3:
-                // 不支持的压缩方式
-                return null;
-            case 4:
-            case 6:
-            case 7:
+            case 2: // compressed
+            case 3: {
+                let yTilde = prefix & 1;
+                let xHex = s.substr(2);
+                let x = this.fromBigInteger(new BigInteger(xHex, 16));
+                let y = this.getYFromX(yTilde, xHex);
+                return new ECPointFp(this, x, y);
+            }
+            case 4: // uncompressed
+            case 6: // hybrid
+            case 7: { // hybrid
                 let len = (s.length - 2) / 2;
                 let xHex = s.substr(2, len);
                 let yHex = s.substr(len + 2, len);
 
                 return new ECPointFp(this, this.fromBigInteger(new BigInteger(xHex, 16)), this.fromBigInteger(new BigInteger(yHex, 16)));
+            }
             default:
                 // 不支持
                 return null;

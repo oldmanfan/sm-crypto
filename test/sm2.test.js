@@ -1,4 +1,6 @@
-const sm2 = require('../index').sm2;
+const cipher = require('../index');
+const sm2 = cipher.sm2;
+const mnemonic = cipher.mnemonic;
 
 const cipherMode = 1; // 1 - C1C3C2，0 - C1C2C3
 
@@ -16,8 +18,21 @@ beforeAll(() => {
     privateKey = keypair.privateKey;
 });
 
+test('mnemonic test', () => {
+    let memos = mnemonic.generateKeyPairAndMnemonic();
+
+    expect(memos.mnemonic.split(' ').length).toBe(12);
+    expect(memos.publicKey.length).toBe(66);
+    expect(memos.privateKey.length).toBe(64);
+
+    let keypair = mnemonic.generateKeyPairByMnemonic(memos.mnemonic, false);
+    expect(keypair.publicKey.length).toBe(130);
+    expect(keypair.privateKey.length).toBe(64);
+    expect(keypair.privateKey).toBe(memos.privateKey);
+});
+
 test('generate keypair', () => {
-    expect(publicKey.length).toBe(130);
+    expect(publicKey.length).toBe(66);
     expect(privateKey.length).toBe(64);
 });
 
@@ -40,7 +55,7 @@ test('sign data and verify sign', () => {
     let sigValueHex = sm2.doSignature(msgString, privateKey);
     let verifyResult = sm2.doVerifySignature(msgString, sigValueHex, publicKey);
     expect(verifyResult).toBe(true);
-    
+
     // 纯签名
     let sigValueHex2 = sm2.doSignature(msgString, privateKey, {
         pointPool: [sm2.getPoint(), sm2.getPoint(), sm2.getPoint(), sm2.getPoint()],

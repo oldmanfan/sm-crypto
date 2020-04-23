@@ -36,7 +36,7 @@ class SM2Cipher {
     }
 
     initEncipher(userKey) {
-        let keypair = _.generateKeyPairHex();
+        let keypair = _.generateKeyPairHex(false);
         let k = new BigInteger(keypair.privateKey, 16);
         let publicKey = keypair.publicKey;
 
@@ -81,7 +81,7 @@ class SM2Cipher {
         this.sm3c3.doFinal(c3, 0);
         this.reset();
     }
-    
+
     createPoint(x, y) {
         let publicKey = '04' + x + y;
         let point = _.getGlobalCurve().decodePointHex(publicKey);

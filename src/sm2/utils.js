@@ -32,16 +32,84 @@ function generateEcparam() {
 }
 
 /**
+ * 公钥压缩
+ * @param {BigInteger} x x point
+ * @param {BigInteger} y y point
+ * @param {boolean} compressed 是否压缩公钥
+ */
+function getEncodedPublicKey(x, y, compressed = true) {
+    let Px = leftPad(x.toString(16), 64);
+    if (compressed) {
+        let prefix = y.isEven() ? '02' : '03';
+        return prefix + Px;
+    } else {
+        let Py = leftPad(y.toString(16), 64);
+        return '04' + Px + Py;
+    }
+}
+
+/**
  * 生成密钥对
  */
-function generateKeyPairHex() {
+function generateKeyPairHex(compressed = true) {
     let d = new BigInteger(n.bitLength(), rng).mod(n.subtract(BigInteger.ONE)).add(BigInteger.ONE); // 随机数
     let privateKey = leftPad(d.toString(16), 64);
 
     let P = G.multiply(d); // P = dG，p 为公钥，d 为私钥
+    let x = P.getX().toBigInteger();
+    let y = P.getY().toBigInteger();
+    let publicKey = getEncodedPublicKey(x, y, compressed);
+
+    return { privateKey, publicKey };
+}
+
+/**
+ * 从私钥计算出公钥
+ *
+ * @param {string} privateKey 私钥, hex格式的string
+ * @param {boolean} [compressed=true] 是否压缩公钥
+ * @returns 公钥
+ */
+function privateToPublic(privateKey, compressed = true) {
+    let d = new BigInteger(privateKey, 16); // 随机数
+
+    let P = G.multiply(d); // P = dG，p 为公钥，d 为私钥
+    let x = P.getX().toBigInteger();
+    let y = P.getY().toBigInteger();
+    let publicKey = getEncodedPublicKey(x, y, compressed);
+    return publicKey;
+}
+/**
+ * 从压缩格式的公钥导出非压缩的公钥.
+ * @param {string} compressedPub 压缩格式的公钥, 以'02'或'03'开头.
+ */
+function compressedToUncompressedPublicKey(compressedPub) {
+    let prefix = compressedPub.substr(0,2);
+    // 非压缩格式的, 直接返回
+    if (prefix === '04') return compressedPub;
+
+    if (prefix !== '02' && prefix !== '03') {
+        throw new Error(`${compressedPub} is not a valid compressed public key.`);
+    }
+
+    let P = getGlobalCurve().decodePointHex(compressedPub);
     let Px = leftPad(P.getX().toBigInteger().toString(16), 64);
     let Py = leftPad(P.getY().toBigInteger().toString(16), 64);
     let publicKey = '04' + Px + Py;
+    return publicKey;
+}
+/**
+ * 使用提供的seed生成密钥对
+ * @param {seed} input 随机数种子
+ */
+function generateKeyPairHexBySeed(seed, compressed = true) {
+    let d = new BigInteger(seed, 16); // 随机数
+    let privateKey = leftPad(d.toString(16), 64);
+
+    let P = G.multiply(d); // P = dG，p 为公钥，d 为私钥
+    let x = P.getX().toBigInteger();
+    let y = P.getY().toBigInteger();
+    let publicKey = getEncodedPublicKey(x, y, compressed);
 
     return { privateKey, publicKey };
 }
@@ -97,7 +165,7 @@ function arrayToHex(arr) {
         words[i >>> 3] |= parseInt(arr[j], 10) << (24 - (i % 8) * 4);
         j++;
     }
-    
+
     // 转换到16进制
     let hexChars = [];
     for (let i = 0; i < arr.length; i++) {
@@ -157,6 +225,9 @@ module.exports = {
     getGlobalCurve,
     generateEcparam,
     generateKeyPairHex,
+    generateKeyPairHexBySeed,
+    privateToPublic,
+    compressedToUncompressedPublicKey,
     parseUtf8StringToHex,
     parseArrayBufferToHex,
     leftPad,

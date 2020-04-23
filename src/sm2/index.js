@@ -10,8 +10,9 @@ const C1C2C3 = 0;
 /**
  * 加密
  */
-function doEncrypt(msg, publicKey, cipherMode = 1) {
+function doEncrypt(msg, pubKey, cipherMode = 1) {
     let cipher = new SM2Cipher();
+    let publicKey = _.compressedToUncompressedPublicKey(pubKey);
     msg = _.hexToArray(_.parseUtf8StringToHex(msg));
 
     if (publicKey.length > 128) {
@@ -74,12 +75,15 @@ function doDecrypt(encryptData, privateKey, cipherMode = 1) {
 /**
  * 签名
  */
-function doSignature(msg, privateKey, { pointPool, der, hash, publicKey } = {}) {
+function doSignature(msg, privateKey, { pointPool, der, hash, pubKey } = {}) {
     let hashHex = typeof msg === 'string' ? _.parseUtf8StringToHex(msg) : _.parseArrayBufferToHex(msg);
 
     if (hash) {
         // sm3杂凑
-        publicKey = publicKey || getPublicKeyFromPrivateKey(privateKey);
+        let publicKey;
+        if (pubKey) publicKey = _.compressedToUncompressedPublicKey(pubKey);
+        else publicKey = _.privateToPublic(privateKey, false);
+
         hashHex = doSm3Hash(hashHex, publicKey);
     }
 
@@ -120,9 +124,9 @@ function doSignature(msg, privateKey, { pointPool, der, hash, publicKey } = {}) 
 /**
  * 验签
  */
-function doVerifySignature(msg, signHex, publicKey, { der, hash } = {}) {
+function doVerifySignature(msg, signHex, pubKey, { der, hash } = {}) {
     let hashHex = typeof msg === 'string' ? _.parseUtf8StringToHex(msg) : _.parseArrayBufferToHex(msg);
-
+    let publicKey = _.compressedToUncompressedPublicKey(pubKey);
     if (hash) {
         // sm3杂凑
         hashHex = doSm3Hash(hashHex, publicKey);
@@ -158,15 +162,16 @@ function doVerifySignature(msg, signHex, publicKey, { der, hash } = {}) {
 /**
  * sm3杂凑算法
  */
-function doSm3Hash(hashHex, publicKey) {
+function doSm3Hash(hashHex, pubKey) {
     let smDigest = new SM3Digest();
-    
+    let publicKey = _.compressedToUncompressedPublicKey(pubKey);
+
     let z = new SM3Digest().getZ(G, publicKey.substr(2, 128));
     let zValue = _.hexToArray(_.arrayToHex(z).toString());
-    
+
     let p = hashHex;
     let pValue = _.hexToArray(p);
-    
+
     let hashData = new Array(smDigest.getDigestSize());
     smDigest.blockUpdate(zValue, 0, zValue.length);
     smDigest.blockUpdate(pValue, 0, pValue.length);
@@ -176,20 +181,10 @@ function doSm3Hash(hashHex, publicKey) {
 }
 
 /**
- * 计算公钥
- */
-function getPublicKeyFromPrivateKey(privateKey) {
-    let PA = G.multiply(new BigInteger(privateKey, 16));
-    let x = _.leftPad(PA.getX().toBigInteger().toString(16), 64);
-    let y = _.leftPad(PA.getY().toBigInteger().toString(16), 64);
-    return '04' + x + y;
-}
-
-/**
  * 获取椭圆曲线点
  */
 function getPoint() {
-    let keypair = _.generateKeyPairHex();
+    let keypair = _.generateKeyPairHex(false);
     let PA = curve.decodePointHex(keypair.publicKey);
 
     keypair.k = new BigInteger(keypair.privateKey, 16);
@@ -200,6 +195,9 @@ function getPoint() {
 
 module.exports = {
     generateKeyPairHex: _.generateKeyPairHex,
+    generateKeyPairHexBySeed: _.generateKeyPairHexBySeed,
+    privateToPublic: _.privateToPublic,
+    compressedToUncompressedPublicKey: _.compressedToUncompressedPublicKey,
     doEncrypt,
     doDecrypt,
     doSignature,
